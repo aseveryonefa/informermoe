@@ -17,6 +17,8 @@ from .l2_loss import L2_LOSS
 # from l2_loss import L2_LOSS
 
 
+from .ParseAttn_Moe import InformerEncoderLayer
+
 # current_rank = dist.get_rank()
 # allow_print = (current_rank == 0)
 
@@ -72,7 +74,7 @@ class VAMoE(nn.Module):
 
         if self.loss_type == 'trainl2':
             # print('****** using train l2 loss ******')
-            learn_log_variance=dict(flag=True, channels=params['feature_dims'], logvar_init=0., requires_grad=True)
+            learn_log_variance=dict(flag=False, channels=params['feature_dims'], logvar_init=0., requires_grad=True)
             self.loss_gen = L2_LOSS(learn_log_variance=learn_log_variance)
             self.loss_recons = L2_LOSS(learn_log_variance=learn_log_variance)
 
@@ -131,7 +133,18 @@ class VAMoE(nn.Module):
                     noisy_gating=noisy_gating, k_element=k_element, allow_print=allow_print, topk=self.topk
                 )
             for i in range(self.depth)])
-
+        #########增加informer模型！！！！！！！！！！
+        elif self.model_type == 'informer':
+            self.blocks = nn.ModuleList([
+                InformerEncoderLayer(
+                    d_model=self.embed_dim,         # 嵌入维度
+                    n_heads=self.num_blocks,       # 注意力头数
+                    num_experts=params['num_exports'], # 专家数量
+                    k=self.topk,                   # Top-K 路由
+                    hidden_dim=getattr(params, 'hidden_dim', self.embed_dim * 4), # 隐藏层维度
+                    dropout=drop_rate
+                )
+            for i in range(self.depth)])
 
         # self.norm = norm_layer(self.embed_dim)
 
@@ -323,6 +336,15 @@ class VAMoE(nn.Module):
                     mid_output = checkpoint(blk, x, use_reentrant=False)
                 else:
                     mid_output = blk(x)
+
+            ### 新增加informer框架!!!!!
+            elif self.model_type == 'informer':
+                if self.training:
+                    mid_output,l_loss = checkpoint(blk,x,use_reentrant=False) 
+                else:
+                    mid_output,l_loss = blk(x)
+                loss += l_loss
+
             if self.use_moe == 'moe':
                 x, l = mid_output
                 loss += l
@@ -346,7 +368,7 @@ class VAMoE(nn.Module):
         if self.loss_type == 'trainl2':
             total_loss = (1-self.loss_weight) * self.loss_gen(output, target) + self.loss_weight * self.loss_recons(recons, target)
             # print('total loss:', total_loss, 'loss:', loss)
-            if self.use_moe=='moe':
+            if self.model_type == 'informer' or self.use_moe=='moe':
                 total_loss += loss
             if self.use_moe=='channelmoev3' and self.run_mode=='train':
                 total_loss += loss
@@ -357,7 +379,7 @@ class VAMoE(nn.Module):
         elif self.use_moe=='channelmoev3' and self.run_mode=='train':
             return output, recons, loss
         else:
-            return output, recons
+            return output, recons,total_loss
 
 
 if __name__ == "__main__":

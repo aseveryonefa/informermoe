@@ -4,11 +4,14 @@ config='vamoe'
 run_num='1'
 
 
-NAME='function_check5'
+NAME='Informer'
 
 LOG_DIR="./logs/${NAME}/"
 # 确保目录存在
 mkdir -p -- "$LOG_DIR"
+
+export PYTHONIOENCODING=utf-8
+
 
 # 2. 定位上一次最好的模型文件路径
 BEST_CKPT="${LOG_DIR}${config}/${run_num}/training_checkpoints/best_ckpt.tar"

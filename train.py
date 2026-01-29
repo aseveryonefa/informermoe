@@ -1,4 +1,20 @@
 import os
+###############################################################！！！！！！！！！！！！！！！！！！
+import warnings
+# 1. 忽略 Pydantic 的 UnsupportedFieldAttributeWarning 警告
+# 这种警告通常来自第三方库内部写法，很难直接通过 category 过滤，用 message 匹配最稳妥
+warnings.filterwarnings("ignore", message=".*The 'repr' attribute with value False.*")
+warnings.filterwarnings("ignore", message=".*The 'frozen' attribute with value True.*")
+
+# 2. 忽略 timm 的 FutureWarning
+warnings.filterwarnings("ignore", message="Importing from timm.models.layers is deprecated")
+
+# 3. 忽略 torch.cuda.amp 的 FutureWarning
+warnings.filterwarnings("ignore", message=".*torch.cuda.amp.autocast.*")
+
+# 如果你想简单粗暴地忽略所有 FutureWarning（不推荐，可能会漏掉重要信息），可以使用：
+# warnings.simplefilter(action='ignore', category=FutureWarning)
+###################################################################
 import time
 import numpy as np
 import argparse

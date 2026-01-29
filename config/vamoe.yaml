@@ -2,7 +2,7 @@
 full_field: &FULL_FIELD
   loss: 'trainl2'                        # 'l2' 'lploss' 'trainl2'
   loss_weight: 0.1
-  lr: 2E-4                               # 2E-4     1E-5 2E-5 5E-5     
+  lr: 5E-5                               # 2E-4     1E-5 2E-5 5E-5     
   min_lr: 3E-7                           # 1E-7 3E-7
   scheduler: 'CosineAnnealingLR'         # 'ReduceLROnPlateau' 'CosineAnnealingLR'
   # num_data_workers: 4
@@ -53,13 +53,13 @@ full_field: &FULL_FIELD
 
   # dataset setting
   name: 'era5'
-  root_dir: './data'
+  root_dir: 'D:\PythonProgram\ML\data'
   feature_dims: 65              # 65 68 69
-  model_type: 'vit'
+  model_type: 'informer'        #vit
   patch: True
-  patch_size: 4                 # 2 4
+  patch_size: 8                 # 2 4
   num_blocks: 4                # 8 16# 注意：这个参数通常被用作 num_heads（注意力头数）
-  encoder_depths: 8            # 16 24
+  encoder_depths: 3            # 16 24      8
   embed_dim: 384                # 768 1024 1280
   t_in: 1
   t_out_train: 1
@@ -76,8 +76,8 @@ full_field: &FULL_FIELD
   batch_size: 2                 # 4 12 16
   num_data_workers: 4         # 20
   grid_resolution: 1.4
-  h_size: 720             #128
-  w_size: 1440
+  h_size: 360             #128
+  w_size: 720
   pressure_level_num: 13
   surface_feature_size: 0       # 0 3 4 5
   save_rmse_acc: True

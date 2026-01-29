@@ -60,63 +60,121 @@ class L2_LOSS(nn.Module):
             self.logvar = torch.ones(size=(1,self.channels))
         
         self.count = 0
-    def forward(self,
-                pred,
-                label,
-                reduction_override=None,
-                **kwargs):
-        assert reduction_override in (None, 'none', 'mean', 'sum')
-        reduction = (
-            reduction_override if reduction_override else self.reduction)
 
-        # only BCE loss has pos_weight
-        if self.pos_weight is not None and self.use_sigmoid:
-            pos_weight = pred.new_tensor(self.pos_weight)
-            kwargs.update({'pos_weight': pos_weight})
-        else:
-            pos_weight = None
 
-        loss = torch.square(pred-label)
-        if self.learn_log_variance or self.normlized_weight:
+    # def forward(self,
+    #             pred,
+    #             label,
+    #             reduction_override=None,
+    #             **kwargs):
+    #     assert reduction_override in (None, 'none', 'mean', 'sum')
+    #     reduction = (
+    #         reduction_override if reduction_override else self.reduction)
+
+    #     # only BCE loss has pos_weight
+    #     if self.pos_weight is not None and self.use_sigmoid:
+    #         pos_weight = pred.new_tensor(self.pos_weight)
+    #         kwargs.update({'pos_weight': pos_weight})
+    #     else:
+    #         pos_weight = None
+
+    #     loss = torch.square(pred-label)
+    #     if self.learn_log_variance or self.normlized_weight:
           
-            if self.learn_log_variance:
-                assert self.logvar.data.ndim == loss.ndim
-                loss = loss / (torch.exp(self.logvar)) + self.logvar
-                loss = loss.mean(dim=(-1,-2))
+    #         if self.learn_log_variance:
+    #             assert self.logvar.data.ndim == loss.ndim
+    #             loss = loss / (torch.exp(self.logvar)) + self.logvar
+    #             loss = loss.mean(dim=(-1,-2))
 
-                if get_rank() == 0:
-                    self.count+=1
-                    if self.count%100==0:
-                        print_log(f'loss channel weight:{self.logvar.data.squeeze()}', logger='current')
-                return loss.mean()
+    #             if get_rank() == 0:
+    #                 self.count+=1
+    #                 if self.count%100==0:
+    #                     print_log(f'loss channel weight:{self.logvar.data.squeeze()}', logger='current')
+    #             return loss.mean()
             
-            if self.normlized_weight:
-                loss = loss.mean(dim=(-1,-2))
-                for i in range(self.channels):
+    #         if self.normlized_weight:
+    #             loss = loss.mean(dim=(-1,-2))
+    #             for i in range(self.channels):
 
-                    self.queues[i].append(loss[:,i].mean().item())
-                    # self.normalized_weight_cfg.get('norm_value')
-                    weight = loss.detach().mean().item()/(10e-9+torch.tensor(list(self.queues[i])).mean())
-                    self.logvar[:,i] = weight
+    #                 self.queues[i].append(loss[:,i].mean().item())
+    #                 # self.normalized_weight_cfg.get('norm_value')
+    #                 weight = loss.detach().mean().item()/(10e-9+torch.tensor(list(self.queues[i])).mean())
+    #                 self.logvar[:,i] = weight
                 
-                assert self.logvar.data.ndim == loss.ndim     
-                loss = loss * self.logvar.to(loss.device)
+    #             assert self.logvar.data.ndim == loss.ndim     
+    #             loss = loss * self.logvar.to(loss.device)
                 
-                if get_rank() == 0:
-                    self.count+=1
-                    if self.count%100==0:
-                        print(self.logvar.data.squeeze())
-                        print(len(self.queues[i]))
+    #             if get_rank() == 0:
+    #                 self.count+=1
+    #                 if self.count%100==0:
+    #                     print(self.logvar.data.squeeze())
+    #                     print(len(self.queues[i]))
                         
-                return loss, (1/self.logvar).mean()
-        else:
-            if self.loss_weight is not None:
-                loss = torch.tensor(self.loss_weight).view(1, -1,1 ,1 ).to(loss.device)*loss
+    #             return loss, (1/self.logvar).mean()
+    #     else:
+    #         if self.loss_weight is not None:
+    #             loss = torch.tensor(self.loss_weight).view(1, -1,1 ,1 ).to(loss.device)*loss
 
-        loss = loss.mean()
+    #     loss = loss.mean()
 
-        return loss
+    #     return loss
+    def forward(self, pred, label, reduction_override=None, **kwargs):
+            assert reduction_override in (None, 'none', 'mean', 'sum')
+            reduction = (reduction_override if reduction_override else self.reduction)
 
+            # 基础计算
+            if self.pos_weight is not None and self.use_sigmoid:
+                pos_weight = pred.new_tensor(self.pos_weight)
+                kwargs.update({'pos_weight': pos_weight})
+            
+            loss = torch.square(pred - label)
+
+            # --- 修改：统一权重的获取逻辑 ---
+            current_weight = None
+            if self.learn_log_variance:
+                # 注意：权重通常是 exp(-logvar)，如果你之前日志是负值，这里用 exp 转换更直观
+                current_weight = torch.exp(-self.logvar.data).squeeze()
+            elif getattr(self, 'loss_weight', None) is not None:
+                current_weight = torch.tensor(self.loss_weight).squeeze()
+            else:
+                current_weight = torch.ones(loss.shape[1], device=loss.device)
+
+            # --- 修改：统一打印逻辑（仅限 Rank 0，仅写日志） ---
+            if get_rank() == 0:
+                self.count += 1  # 全局只在这里加一次
+                if self.count % 100 == 0:
+                    import logging
+                    logger = logging.getLogger('current') 
+                    # 转换为 list 方便日志读取
+                    msg = f'loss channel weight: {current_weight.cpu().numpy().tolist()}'
+                    logger.info(msg)
+
+            # --- 下面只保留计算逻辑，删除所有原有的 print 代码 ---
+            if self.learn_log_variance or self.normlized_weight:
+                if self.learn_log_variance:
+                    assert self.logvar.data.ndim == loss.ndim
+                    # 这里的计算公式保持不变
+                    loss = loss / (torch.exp(self.logvar)) + self.logvar
+                    loss = loss.mean(dim=(-1, -2))
+                    return loss.mean()
+                
+                if self.normlized_weight:
+                    loss = loss.mean(dim=(-1, -2))
+                    for i in range(self.channels):
+                        self.queues[i].append(loss[:, i].mean().item())
+                        weight = loss.detach().mean().item() / (10e-9 + torch.tensor(list(self.queues[i])).mean())
+                        self.logvar[:, i] = weight
+                    
+                    assert self.logvar.data.ndim == loss.ndim     
+                    loss = loss * self.logvar.to(loss.device)
+                    return loss, (1 / self.logvar).mean()
+            else:
+                # flag 为 False 时走这里
+                if self.loss_weight is not None:
+                    loss = torch.tensor(self.loss_weight).view(1, -1, 1, 1).to(loss.device) * loss
+
+            loss = loss.mean()
+            return loss
 
 if __name__ == '__main__':
     learn_log_variance=dict(flag=True, channels=65, logvar_init=0., requires_grad=True)
