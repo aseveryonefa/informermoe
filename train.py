@@ -41,6 +41,10 @@ from utils.weighted_acc_rmse import weighted_acc, weighted_rmse, weighted_rmse_t
 from apex import optimizers
 from utils.darcy_loss import LpLoss
 from networks.l2_loss import L2_LOSS
+import pickle  # [新增] 用于保存和加载损失历史
+import matplotlib
+###新增加loss画图！！！！
+matplotlib.use('Agg') # 强制使用 Agg 后端，不触发 GUI 窗口
 import matplotlib.pyplot as plt
 from collections import OrderedDict
 import pickle
@@ -115,6 +119,13 @@ class Trainer():
             logging.info(f"   t_out_train (Autoregressive Steps): {self.params['t_out_train']}")
             logging.info(f"   t_in (Input Steps): {self.params['t_in']}")
             logging.info("="*30)
+
+        ###添加存储loss数组用于绘图！！！！!!!!
+        if self.world_rank == 0:
+            self.history = {
+                'train_loss': [],
+                'valid_loss': []
+            }
         # ====================================================================
 
         self.loss_type = params['loss']
@@ -234,6 +245,8 @@ class Trainer():
 
         self.inference = InferenceModule(self.model, self.params, self.valid_dataset, run_mode='valid')
 
+        
+
     def switch_off_grad(self, model):
         for param in model.parameters():
             param.requires_grad = False
@@ -274,6 +287,16 @@ class Trainer():
             start = time.time()
             tr_time, data_time, train_logs = self.train_one_epoch()
             valid_time, valid_logs = self.validate_one_epoch()
+
+            ### [新增] 记录损失并动态绘图!!!!!!!!!!!!!!
+            if self.world_rank == 0:
+                # 记录训练损失和验证损失
+                self.history['train_loss'].append(float(train_logs['loss']))
+                self.history['valid_loss'].append(float(valid_logs['valid_loss']))
+                # 调用绘图函数
+                self.plot_loss_curve()
+            ####
+
             if epoch==self.params.max_epochs-1 and self.params.prediction_type == 'direct':
                 valid_weighted_rmse = self.validate_final()
 
@@ -317,11 +340,16 @@ class Trainer():
                 current_lr = self.optimizer.param_groups[0]['lr']
                 logging.info('Train loss: {}. Valid loss: {}. Learning Rate: {}.'.format(train_logs['loss'], valid_logs['valid_loss'], current_lr))
                 # logging.info(f"Test results of RMSE: z500: {valid_logs['z500']}, t2m: {valid_logs['t2m']}, t850: {valid_logs['t850']}, u10: {valid_logs['u10']}")
+                # try:
+                #     logging.info(f"Test results of RMSE: z500: {valid_logs['z500']}, q500: {valid_logs['q500']}, u500: {valid_logs['u500']}")
+                # except:
+                #     logging.info(f"Test results of RMSE: z500: {valid_logs['z500']}, q500: {valid_logs['q500']}")
+                # 确保打印语句包含新增的变量！！！！！！
                 try:
-                    logging.info(f"Test results of RMSE: z500: {valid_logs['z500']}, q500: {valid_logs['q500']}, u500: {valid_logs['u500']}")
-                except:
-                    logging.info(f"Test results of RMSE: z500: {valid_logs['z500']}, q500: {valid_logs['q500']}")
-
+                    logging.info(f"Test results of RMSE: z500: {valid_logs['z500']:.4f}, q500: {valid_logs['q500']:.6f}, u500: {valid_logs['u500']:.4f}, v500: {valid_logs.get('v500', 0):.4f}, t500: {valid_logs.get('t500', 0):.4f}")
+                except KeyError as e:
+                    logging.info(f"Partial RMSE results available. Missing: {e}")
+                ######
 
         #        if epoch==self.params.max_epochs-1 and self.params.prediction_type == 'direct':
         #          logging.info('Final Valid RMSE: Z500- {}. T850- {}, 2m_T- {}'.format(valid_weighted_rmse[0], valid_weighted_rmse[1], valid_weighted_rmse[2]))
@@ -513,10 +541,10 @@ class Trainer():
                 #     batch_valid_loss = self.loss_obj(gen, recons, tar, inp)
                 #     valid_loss += batch_valid_loss
 
-                # 添加验证批次的详细打印
+                # 添加验证批次的详细打印!!!!!!
                 if self.world_rank == 0 and i % 5 == 0:  # 每5个验证批次打印一次
                     logging.info(f"验证批次 {i}: 损失 = {batch_valid_loss.item():.6f}")
-###################################
+                ###################################
 
                 valid_l1 += nn.functional.l1_loss(gen, tar)
 
@@ -567,10 +595,25 @@ class Trainer():
             num_surface_variables = len(self.surface_features)
 
             # logs = {'valid_l1': valid_buff_cpu[1], 'valid_loss': valid_buff_cpu[0], 'z500': valid_weighted_rmse_cpu[5], 't2m': valid_weighted_rmse_cpu[-3], 't850': valid_weighted_rmse_cpu[54], 'u10': valid_weighted_rmse_cpu[-2]}
+            # try:
+            #     logs = {'valid_l1': valid_buff_cpu[1], 'valid_loss': valid_buff_cpu[0], 'z500': valid_weighted_rmse_cpu[5], 'q500': valid_weighted_rmse_cpu[18], 'u500': valid_weighted_rmse_cpu[31] }
+            # except:
+            #     logs = {'valid_l1': valid_buff_cpu[1], 'valid_loss': valid_buff_cpu[0], 'z500': valid_weighted_rmse_cpu[5], 'q500': valid_weighted_rmse_cpu[18]}
+            #### 修改后的日志记录逻辑!!!!!!!
             try:
-                logs = {'valid_l1': valid_buff_cpu[1], 'valid_loss': valid_buff_cpu[0], 'z500': valid_weighted_rmse_cpu[5], 'q500': valid_weighted_rmse_cpu[18], 'u500': valid_weighted_rmse_cpu[31] }
-            except:
-                logs = {'valid_l1': valid_buff_cpu[1], 'valid_loss': valid_buff_cpu[0], 'z500': valid_weighted_rmse_cpu[5], 'q500': valid_weighted_rmse_cpu[18]}
+                logs = {
+                    'valid_l1': valid_buff_cpu[1], 
+                    'valid_loss': valid_buff_cpu[0], 
+                    'z500': valid_weighted_rmse_cpu[5],    # 假设 z 在第 0 个变量，500hPa 是第 5 层
+                    'q500': valid_weighted_rmse_cpu[18],   # 1*13 + 5 = 18
+                    'u500': valid_weighted_rmse_cpu[31],   # 2*13 + 5 = 31
+                    'v500': valid_weighted_rmse_cpu[44],   # 3*13 + 5 = 44 (请根据你的 feature_dims 确认索引)
+                    't500': valid_weighted_rmse_cpu[57]    # 4*13 + 5 = 57
+                }
+            except Exception as e:
+                logging.warning(f"Logging RMSE failed, error: {e}")
+                logs = {'valid_l1': valid_buff_cpu[1], 'valid_loss': valid_buff_cpu[0]}
+            ####
 
             for i, name in enumerate(self.surface_features):
                 logs[name] = valid_weighted_rmse_cpu[i-num_surface_variables]
@@ -637,6 +680,39 @@ class Trainer():
             valid_weighted_rmse = torch.mean(valid_weighted_rmse[0:100], axis = 0).to(self.device)
 
         return valid_weighted_rmse
+
+    ###添加绘制训练和验证损失!!!!!!!!!!!!
+    def plot_loss_curve(self):
+        """ 在实验目录下生成并更新训练与验证损失曲线图 """
+        if self.world_rank != 0:
+            return
+
+        import matplotlib.pyplot as plt
+        
+        # 设置绘图风格
+        plt.figure(figsize=(10, 6))
+        epochs = range(1, len(self.history['train_loss']) + 1)
+        
+        # 绘制两条曲线
+        plt.plot(epochs, self.history['train_loss'], 'b-o', label='Train Loss', markersize=4)
+        plt.plot(epochs, self.history['valid_loss'], 'r-s', label='Valid Loss', markersize=4)
+        
+        # 添加图表信息
+        plt.title(f'VAMoE Training Profile (Epoch {self.epoch})')
+        plt.xlabel('Epoch')
+        plt.ylabel('Loss Value')
+        plt.legend()
+        plt.grid(True, linestyle='--', alpha=0.7)
+        
+        # 自动调整布局防止标签重叠
+        plt.tight_layout()
+        
+        # 保存图片（每次执行都会覆盖此路径下的旧图）
+        save_path = os.path.join(self.params['experiment_dir'], 'loss_curve.png')
+        plt.savefig(save_path)
+        plt.close() # 必须关闭窗口以释放内存，防止训练过程内存泄漏
+    ###
+
 
 
     def save_checkpoint(self, checkpoint_path, model=None):
