@@ -1,4 +1,4 @@
-### base config ###
+### base config ### tensorboard --logdir logs/informer-changemeanstd/ --bind_all --port 6006
 full_field: &FULL_FIELD
   loss: 'trainl2'                        # 'l2' 'lploss' 'trainl2'
   loss_weight: 0.1
@@ -21,7 +21,7 @@ full_field: &FULL_FIELD
   N_grid_channels: 0
   gridtype: 'sinusoidal'                 #options 'sinusoidal' or 'linear'
   roll: !!bool False
-  max_epochs: 75                        # 150 200
+  max_epochs: 150                        # 150 200
   # batch_size: 64
 
   nettype: 'vamoe'
@@ -55,12 +55,12 @@ full_field: &FULL_FIELD
   name: 'era5'
   root_dir: 'D:\PythonProgram\ML\data'
   feature_dims: 65              # 65 68 69
-  model_type: 'informer'        #vit
+  model_type: 'vit'        #vit
   patch: True
-  patch_size: 8                 # 2 4
-  num_blocks: 4                # 8 16# 注意：这个参数通常被用作 num_heads（注意力头数）
-  encoder_depths: 3            # 16 24      8
-  embed_dim: 384                # 768 1024 1280
+  patch_size: 6                 # 2 4
+  num_blocks: 8                # 8 16# 注意：这个参数通常被用作 num_heads（注意力头数）
+  encoder_depths: 8            # 16 24      8
+  embed_dim: 768                # 768 1024 1280
   t_in: 1
   t_out_train: 1
   t_out_valid: 1
@@ -74,10 +74,10 @@ full_field: &FULL_FIELD
   valid_period: [2025, 2025]
   test_period: [2025, 2025]
   batch_size: 2                 # 4 12 16
-  num_data_workers: 4         # 20
+  num_data_workers: 2         # 20
   grid_resolution: 1.4
-  h_size: 360             #128
-  w_size: 720
+  h_size: 720             #128
+  w_size: 1440
   pressure_level_num: 13
   surface_feature_size: 0       # 0 3 4 5
   save_rmse_acc: True

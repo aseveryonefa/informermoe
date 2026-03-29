@@ -140,8 +140,8 @@ class VAMoE(nn.Module):
                     d_model=self.embed_dim,         # 嵌入维度
                     n_heads=self.num_blocks,       # 注意力头数
                     num_experts=params['num_exports'], # 专家数量
-                    k=self.topk,                   # Top-K 路由
-                    hidden_dim=getattr(params, 'hidden_dim', self.embed_dim * 4), # 隐藏层维度
+                    # k=self.topk,                   # Top-K 路由
+                    # hidden_dim=getattr(params, 'hidden_dim', self.embed_dim * 4), # 隐藏层维度
                     dropout=drop_rate
                 )
             for i in range(self.depth)])

@@ -495,9 +495,15 @@ class Era5Data(Dataset):
 
     def _normalize(self, x, x_surface):
         # print('normalized before: ', x.shape )
-        x = (x - self.mean_pressure_level) / self.std_pressure_level
+        x = (x - self.mean_pressure_level) / (self.std_pressure_level + 1e-6)
+        # Fix: Clip anomalous data spikes (e.g. q having values of 1.0) to [-20, 20] std devs.
+        ##########增加先将nan转化为可比较数，防止下面的clip无法处理nan情况！！！！！！！！！
+        x = np.nan_to_num(x, nan=0.0, posinf=0.0, neginf=0.0)
+        ############
+        x = np.clip(x, -20.0, 20.0)
         if x_surface is not None:
-            x_surface = (x_surface - self.mean_surface) / self.std_surface
+            x_surface = (x_surface - self.mean_surface) / (self.std_surface + 1e-6)
+            x_surface = np.clip(x_surface, -20.0, 20.0)
         # print('normalized after: ', x.shape )
         return x, x_surface
 

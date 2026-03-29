@@ -4,7 +4,7 @@ config='vamoe'
 run_num='1'
 
 
-NAME='Informer'
+NAME='vit-changemeanstd'
 
 LOG_DIR="./logs/${NAME}/"
 # 确保目录存在

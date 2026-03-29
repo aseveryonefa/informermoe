@@ -124,7 +124,8 @@ class Trainer():
         if self.world_rank == 0:
             self.history = {
                 'train_loss': [],
-                'valid_loss': []
+                'valid_loss': [],
+                'z500': []
             }
         # ====================================================================
 
@@ -213,6 +214,13 @@ class Trainer():
             with torch.no_grad():
                 self.restore_checkpoint(params.checkpoint_path)
 
+        # 在恢复了 checkpoint 获取到正确的 self.iters 后，再初始化 Tensorboard。
+        # 传入 purge_step=self.iters 能够让 Tensorboard 自动裁掉这次中断节点之后保存的废弃散点！
+        if self.world_rank == 0:
+            from torch.utils.tensorboard import SummaryWriter
+            purge_step = self.iters if params.resuming else None
+            self.writer = SummaryWriter(log_dir=self.params['experiment_dir'], purge_step=purge_step)
+
         if self.use_cl and self.startEpoch == 0:
             logging.info("Loading continuous learning checkpoint %s"%params.cl_ckpt_path)
             with torch.no_grad():
@@ -293,6 +301,8 @@ class Trainer():
                 # 记录训练损失和验证损失
                 self.history['train_loss'].append(float(train_logs['loss']))
                 self.history['valid_loss'].append(float(valid_logs['valid_loss']))
+                if 'z500' in valid_logs:
+                    self.history['z500'].append(float(valid_logs['z500']))
                 # 调用绘图函数
                 self.plot_loss_curve()
             ####
@@ -327,7 +337,7 @@ class Trainer():
                             num = int(name.split('.')[0][4:]) - 5
                             rm_checkpoint_path = self.params.mid_checkpoint_path + f'ckpt{str(num)}.tar'
                             os.system(f'rm -r {rm_checkpoint_path}')
-
+                    ##########将最优判断从valid_loss改为z500！！！！！！！！！！！
                     if valid_logs['valid_loss'] <= best_valid_loss:
                         #logging.info('Val loss improved from {} to {}'.format(best_valid_loss, valid_logs['valid_loss']))
                         self.save_checkpoint(self.params.best_checkpoint_path)
@@ -432,10 +442,12 @@ class Trainer():
                     #添加打印loss的代码！！！！！！！！！！！！！
                     if self.world_rank == 0 and i % 10 == 0:  # 每10个batch打印一次
                         logging.info(f"Epoch {self.epoch}, Batch {i}, Loss: {loss.item():.6f}")
+                        self.writer.add_scalar('Loss/Batch_Train', loss.item(), self.iters)
+                        self.writer.flush()
                         
                         # 检查损失是否异常
                         if torch.isnan(loss).any() or torch.isinf(loss).any():
-                            logging.warning(f"⚠️  异常损失值: {loss.item()}")
+                            logging.warning(f"[Warning] Abnormal loss value: {loss.item()}")
 
 
 
@@ -558,8 +570,9 @@ class Trainer():
                     tar = unlog_tp_torch(tar, self.params.precip_eps)
 
                 valid_weighted_rmse += weighted_rmse_torch(gen, tar)
-
-                if not self.precip:
+                #####将每个epoch的图片保存改为每5个epoch保存一次图片，避免磁盘IO瓶颈（仅修改if条件）!!!!!!!!!!!!!!
+                # if not self.precip:
+                if not self.precip and self.epoch % 5 == 0:  # 每5个Epoch保存一次图片，避免磁盘IO瓶颈
                     try:
                         os.mkdir(params['experiment_dir'] + "/" + str(i))
                     except:
@@ -683,34 +696,26 @@ class Trainer():
 
     ###添加绘制训练和验证损失!!!!!!!!!!!!
     def plot_loss_curve(self):
-        """ 在实验目录下生成并更新训练与验证损失曲线图 """
+        """ 在实验目录下更新 TensorBoard 的训练与验证损失曲线图 """
         if self.world_rank != 0:
             return
 
-        import matplotlib.pyplot as plt
+        if len(self.history['train_loss']) == 0:
+            return
+            
+        current_epoch = self.epoch
+        train_loss = self.history['train_loss'][-1]
         
-        # 设置绘图风格
-        plt.figure(figsize=(10, 6))
-        epochs = range(1, len(self.history['train_loss']) + 1)
+        self.writer.add_scalar('Loss/Train', train_loss, current_epoch)
         
-        # 绘制两条曲线
-        plt.plot(epochs, self.history['train_loss'], 'b-o', label='Train Loss', markersize=4)
-        plt.plot(epochs, self.history['valid_loss'], 'r-s', label='Valid Loss', markersize=4)
-        
-        # 添加图表信息
-        plt.title(f'VAMoE Training Profile (Epoch {self.epoch})')
-        plt.xlabel('Epoch')
-        plt.ylabel('Loss Value')
-        plt.legend()
-        plt.grid(True, linestyle='--', alpha=0.7)
-        
-        # 自动调整布局防止标签重叠
-        plt.tight_layout()
-        
-        # 保存图片（每次执行都会覆盖此路径下的旧图）
-        save_path = os.path.join(self.params['experiment_dir'], 'loss_curve.png')
-        plt.savefig(save_path)
-        plt.close() # 必须关闭窗口以释放内存，防止训练过程内存泄漏
+        if len(self.history['valid_loss']) > 0:
+            valid_loss = self.history['valid_loss'][-1]
+            self.writer.add_scalar('Loss/Valid', valid_loss, current_epoch)
+
+        if len(self.history['z500']) > 0:
+            self.writer.add_scalar('RMSE/z500', self.history['z500'][-1], current_epoch)
+            
+        self.writer.flush()
     ###
 
 
